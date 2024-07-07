@@ -1,0 +1,81 @@
+from datetime import datetime, timedelta
+
+fecha_actual = datetime.now() - timedelta(hours=0)
+
+while True:
+    hora_entrada_str = input("Ingrese la hora de entrada del vehículo (HH:MM:SS): ")
+    try:
+        hora_entrada = datetime.strptime(hora_entrada_str, '%H:%M:%S').time()
+        if hora_entrada < datetime.strptime('00:00:00', '%H:%M:%S').time() or hora_entrada > datetime.strptime('23:59:59', '%H:%M:%S').time():
+            print("La hora debe estar dentro del rango de 00:00:00 a 23:59:59.")
+            continue
+        break
+    except ValueError:
+        print("Formato de hora incorrecto. Use HH:MM:SS.")
+        continue
+
+while True:
+    hora_salida_str = input("Ingrese la hora de salida del vehículo (HH:MM:SS): ")
+    try:
+        hora_salida = datetime.strptime(hora_salida_str, '%H:%M:%S').time()
+        if hora_salida < datetime.strptime('00:00:00', '%H:%M:%S').time() or hora_salida > datetime.strptime('23:59:59', '%H:%M:%S').time():
+            print("La hora debe estar dentro del rango de 00:00:00 a 23:59:59.")
+            continue
+        break
+    except ValueError:
+        print("Formato de hora incorrecto. Use HH:MM:SS.")
+        continue
+
+hora_entrada_dt = datetime.combine(fecha_actual.date(), hora_entrada)
+hora_salida_dt = datetime.combine(fecha_actual.date(), hora_salida)
+
+if hora_salida_dt < hora_entrada_dt:
+    print("La hora de salida no puede ser anterior a la hora de entrada.")
+else:
+    tiempo_estacionado_horas = (hora_salida_dt - hora_entrada_dt).total_seconds() / 3600
+    tarifa_por_hora = 1.0
+
+    if tiempo_estacionado_horas < 1:
+        total_cobrar = 1.0
+        print(f"Total a cobrar por hora o fracción de hora: ${total_cobrar}")
+    else:
+        total_cobrar = round(tiempo_estacionado_horas * tarifa_por_hora, 2)
+        print(f"Total a cobrar por {tiempo_estacionado_horas:.2f} horas de estacionamiento: ${total_cobrar}")
+
+    while True:
+        try:
+            monto_pagado = float(input("Ingrese el monto que paga el cliente (máximo $20): "))
+            if monto_pagado > 20.0:
+                print("El monto pagado no puede ser mayor a 20 dólares.")
+            elif monto_pagado < total_cobrar:
+                print("El monto pagado es insuficiente para cubrir el total a cobrar.")
+            else:
+                cambio = round(monto_pagado - total_cobrar, 2)
+                print(f"El cliente ha pagado: ${monto_pagado:.2f}")
+                print(f"Cambio a dar: ${cambio:.2f}")
+                
+                denominaciones = {
+                    20.0: "billetes de 20 dólares",
+                    10.0: "billetes de 10 dólares",
+                    5.0: "billetes de 5 dólares",
+                    1.0: "monedas de 1 dólar",
+                    0.5: "monedas de 50 centavos",
+                    0.25: "monedas de 25 centavos",
+                    0.05: "monedas de 5 centavos",
+                    0.01: "monedas de 1 centavo"
+                }
+                
+                desglose = {}
+                
+                for valor, denominacion in denominaciones.items():
+                    cantidad = int(cambio // valor)
+                    if cantidad > 0:
+                        desglose[denominacion] = cantidad
+                    cambio = round(cambio % valor, 2)
+                
+                print("Desglose del cambio:")
+                for denominacion, cantidad in desglose.items():
+                    print(f" - {cantidad} {denominacion}")
+                break
+        except ValueError:
+            print("Por favor, ingrese un número válido.")
