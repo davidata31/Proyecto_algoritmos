@@ -1,0 +1,105 @@
+import tkinter as tk
+from tkinter import messagebox
+from datetime import datetime, timedelta
+
+def calcular_cobro():
+    try:
+        hora_entrada = datetime.strptime(entr_hora_entrada.get(), '%H:%M:%S').time()
+        hora_salida = datetime.strptime(entr_hora_salida.get(), '%H:%M:%S').time()
+        
+        hora_entrada_dt = datetime.combine(datetime.now().date(), hora_entrada)
+        hora_salida_dt = datetime.combine(datetime.now().date(), hora_salida)
+        
+        if hora_salida_dt < hora_entrada_dt:
+            messagebox.showerror("Error", "La hora de salida no puede ser anterior a la hora de entrada.")
+            return
+        
+        tiempo_estacionado_horas = (hora_salida_dt - hora_entrada_dt).total_seconds() / 3600
+        tarifa_por_hora = 1.0
+        
+        if tiempo_estacionado_horas < 1:
+            total_cobrar = 1.0
+            messagebox.showinfo("Total a Cobrar", f"Total a cobrar por hora o fracción de hora: ${total_cobrar}")
+        else:
+            total_cobrar = round(tiempo_estacionado_horas * tarifa_por_hora, 2)
+            messagebox.showinfo("Total a Cobrar", f"Total a cobrar por {tiempo_estacionado_horas:.2f} horas de estacionamiento: ${total_cobrar}")
+        
+        label_total_cobrar.config(text=f"Total a cobrar: ${total_cobrar:.2f}")
+        global total_a_cobrar
+        total_a_cobrar = total_cobrar
+        
+    except ValueError:
+        messagebox.showerror("Error", "Formato de hora incorrecto. Use HH:MM:SS.")
+
+def calcular_cambio():
+    try:
+        monto_pagado = float(entr_monto_pagado.get())
+        
+        if monto_pagado > 20.0:
+            messagebox.showerror("Error", "El monto pagado no puede ser mayor a 20 dólares.")
+            return
+        elif monto_pagado < total_a_cobrar:
+            messagebox.showerror("Error", "El monto pagado es insuficiente para cubrir el total a cobrar.")
+            return
+        
+        cambio = round(monto_pagado - total_a_cobrar, 2)
+        label_cambio.config(text=f"Cambio a dar: ${cambio:.2f}")
+        
+        denominaciones = {
+            20.0: "billetes de 20 dólares",
+            10.0: "billetes de 10 dólares",
+            5.0: "billetes de 5 dólares",
+            1.0: "monedas de 1 dólar",
+            0.5: "monedas de 50 centavos",
+            0.25: "monedas de 25 centavos",
+            0.05: "monedas de 5 centavos",
+            0.01: "monedas de 1 centavo"
+        }
+        
+        desglose = {}
+        
+        for valor, denominacion in denominaciones.items():
+            cantidad = int(cambio // valor)
+            if cantidad > 0:
+                desglose[denominacion] = cantidad
+            cambio = round(cambio % valor, 2)
+        
+        desglose_texto = "Desglose del cambio:\n"
+        for denominacion, cantidad in desglose.items():
+            desglose_texto += f" - {cantidad} {denominacion}\n"
+        
+        messagebox.showinfo("Desglose del Cambio", desglose_texto)
+        
+    except ValueError:
+        messagebox.showerror("Error", "Por favor, ingrese un número válido.")
+
+root = tk.Tk()
+root.title("Pago de Estacionamiento")
+root.geometry("300x400")
+
+
+tk.Label(root, text="Hora de entrada (HH:MM:SS):").pack(pady=5)
+entr_hora_entrada = tk.Entry(root)
+entr_hora_entrada.pack(pady=5)
+
+tk.Label(root, text="Hora de salida (HH:MM:SS):").pack(pady=5)
+entr_hora_salida = tk.Entry(root)
+entr_hora_salida.pack(pady=5)
+
+tk.Button(root, text="Calcular Cobro", command=calcular_cobro).pack(pady=5)
+
+label_total_cobrar = tk.Label(root, text="Total a cobrar: $0.00")
+label_total_cobrar.pack(pady=5)
+
+tk.Label(root, text="Monto pagado:").pack(pady=5)
+entr_monto_pagado = tk.Entry(root)
+entr_monto_pagado.pack(pady=5)
+
+tk.Button(root, text="Calcular Cambio", command=calcular_cambio).pack(pady=5)
+
+label_cambio = tk.Label(root, text="Cambio a dar: $0.00")
+label_cambio.pack(pady=5)
+
+total_a_cobrar = 0.0
+
+root.mainloop()
