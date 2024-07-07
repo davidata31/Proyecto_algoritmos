@@ -1,0 +1,303 @@
+import requests
+import json
+import base64
+import configparser
+import logging
+from datetime import datetime, timedelta
+import math
+import os
+from dotenv import load_dotenv
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def load_config(config_file='config.ini'):
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    return config
+
+def get_twilio_headers(account_sid, auth_token):
+    auth_str = f'{account_sid}:{auth_token}'
+    auth_bytes = auth_str.encode('utf-8')
+    auth_base64 = base64.b64encode(auth_bytes).decode('utf-8')
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': f'Basic {auth_base64}'
+    }
+    return headers
+
+def send_whatsapp_message(from_number, to_number, message_body, account_sid, auth_token):
+    config = load_config()
+    url = f'{config["TWILIO"]["API_URL"]}/{account_sid}/Messages.json'
+    message_data = {
+        'From': from_number,
+        'To': to_number,
+        'Body': message_body
+    }
+    headers = get_twilio_headers(account_sid, auth_token)
+    response = requests.post(url, headers=headers, data=message_data)
+    return response
+
+def guardar_datos_usuario(nombre, cedula, placa):
+    if not os.path.exists('Base_Usuarios'):
+        os.makedirs('Base_Usuarios')
+
+    archivo_usuario = os.path.join('Base_Usuarios', f'{cedula}.txt')
+
+    with open(archivo_usuario, 'w') as archivo:
+        archivo.write(f'Nombre: {nombre}\n')
+        archivo.write(f'Cédula: {cedula}\n')
+        archivo.write(f'Placa: {placa}\n')
+
+    print(f'Datos del usuario {nombre} guardados en {archivo_usuario}')
+
+def cargar_datos_usuario(cedula):
+    archivo_usuario = os.path.join('Base_Usuarios', f'{cedula}.txt')
+    if os.path.exists(archivo_usuario):
+        with open(archivo_usuario, 'r') as archivo:
+            datos = archivo.readlines()
+            nombre = datos[0].split(": ")[1].strip()
+            placa = datos[2].split(": ")[1].strip()
+            print(f'Datos del usuario {cedula}:\nNombre: {nombre}\nPlaca: {placa}')
+            return nombre, placa
+    else:
+        print(f'Usuario con cédula {cedula} no encontrado.')
+        return None, None
+
+def eliminar_usuario(cedula):
+    archivo_usuario = os.path.join('Base_Usuarios', f'{cedula}.txt')
+    if os.path.exists(archivo_usuario):
+        os.remove(archivo_usuario)
+        print(f'Usuario con cédula {cedula} eliminado.')
+    else:
+        print(f'Usuario con cédula {cedula} no encontrado.')
+
+def menu_principal():
+    print("Bienvenido/a al sistema de gestión de estacionamiento.")
+    print("Seleccione una opción:")
+    print("1. Crear nuevo usuario")
+    print("2. Iniciar sesión")
+    print("3. Eliminar usuario")
+    print("4. Salir")
+
+    while True:
+        opcion = input("Ingrese su opción (1-4): ")
+        if opcion in ['1', '2', '3', '4']:
+            return opcion
+        else:
+            print("Opción inválida. Por favor, intente nuevamente.")
+
+def procesar_estacionamiento(nombre, placa, from_number, to_number, account_sid, auth_token):
+    fecha_actual = datetime.now() - timedelta(hours=0)
+
+    mensaje_inicial = f'''Bienvenido/a {nombre}. Se cobrará 25 centavos por cada 15 minutos de estacionamiento. Los primeros 10 minutos son gratuitos. Si se ha estacionado menos de 1 hora recuerde que por hora o fracción el parqueadero cuesta 1 dólar.'''
+    response = send_whatsapp_message(from_number, to_number, mensaje_inicial, account_sid, auth_token)
+
+    if response.status_code == 201:
+        print('Mensaje inicial enviado correctamente.')
+    else:
+        print('Error al enviar el mensaje inicial:')
+        print(response.text)
+
+    while True:
+        hora_entrada_str = input("Ingrese la hora de entrada del vehículo (HH:MM:SS): ")
+        try:
+            hora_entrada = datetime.strptime(hora_entrada_str, '%H:%M:%S').time()
+            if hora_entrada < datetime.strptime('00:00:00', '%H:%M:%S').time() or hora_entrada > datetime.strptime('23:59:59', '%H:%M:%S').time():
+                print("La hora debe estar dentro del rango de 00:00:00 a 23:59:59.")
+                continue
+            break
+        except ValueError:
+            print("Formato de hora incorrecto. Use HH:MM:SS.")
+            continue
+
+    while True:
+        hora_salida_str = input("Ingrese la hora de salida del vehículo (HH:MM:SS): ")
+        try:
+            hora_salida = datetime.strptime(hora_salida_str, '%H:%M:%S').time()
+            if hora_salida < datetime.strptime('00:00:00', '%H:%M:%S').time() or hora_salida > datetime.strptime('23:59:59', '%H:%M:%S').time():
+                print("La hora debe estar dentro del rango de 00:00:00 a 23:59:59.")
+                continue
+            break
+        except ValueError:
+            print("Formato de hora incorrecto. Use HH:MM:SS.")
+            continue
+
+    hora_entrada_dt = datetime.combine(fecha_actual.date(), hora_entrada)
+    hora_salida_dt = datetime.combine(fecha_actual.date(), hora_salida)
+
+    if hora_salida_dt < hora_entrada_dt:
+        print("La hora de salida no puede ser anterior a la hora de entrada.")
+        return
+
+    tiempo_estacionado = hora_salida_dt - hora_entrada_dt
+    tiempo_estacionado_minutos = tiempo_estacionado.total_seconds() / 60
+
+    if tiempo_estacionado_minutos <= 10:
+        costo_estacionamiento = 0
+    else:
+        tiempo_estacionado_minutos -= 10
+        costo_estacionamiento = math.ceil(tiempo_estacionado_minutos / 15) * 0.25
+
+    if tiempo_estacionado_minutos < 60:
+        costo_estacionamiento = min(costo_estacionamiento, 1.0)
+
+    print(f"Tiempo total de estacionamiento: {tiempo_estacionado}")
+    print(f"Costo total de estacionamiento: ${costo_estacionamiento:.2f}")
+
+    mensaje_cobro = f"{nombre}, su {'moto' if len(placa) == 6 else 'vehículo'} con placa {placa}: Tiempo de estacionamiento: {tiempo_estacionado}, Costo: ${costo_estacionamiento:.2f}"
+    response = send_whatsapp_message(from_number, to_number, mensaje_cobro, account_sid, auth_token)
+
+    if response.status_code == 201:
+        print('Mensaje de cobro enviado correctamente.')
+    else:
+        print('Error al enviar el mensaje de cobro:')
+        print(response.text)
+
+    while True:
+        try:
+            monto_pagado = float(input("Ingrese el monto que paga el cliente (máximo $20): "))
+            if monto_pagado > 20.0:
+                print("El monto pagado no puede ser mayor a 20 dólares.")
+            elif monto_pagado < costo_estacionamiento:
+                print("El monto pagado es insuficiente para cubrir el total a cobrar.")
+            else:
+                cambio = round(monto_pagado - costo_estacionamiento, 2)
+                print(f"El cliente ha pagado: ${monto_pagado:.2f}")
+                print(f"Cambio a dar: ${cambio:.2f}")
+
+                denominaciones = {
+                    20.0: "billetes de 20 dólares",
+                    10.0: "billetes de 10 dólares",
+                    5.0: "billetes de 5 dólares",
+                    1.0: "monedas de 1 dólar",
+                    0.5: "monedas de 50 centavos",
+                    0.25: "monedas de 25 centavos",
+                    0.05: "monedas de 5 centavos",
+                    0.01: "monedas de 1 centavo"
+                }
+
+                desglose = {}
+
+                for valor, denominacion in denominaciones.items():
+                    cantidad = int(cambio // valor)
+                    if cantidad > 0:
+                        desglose[denominacion] = cantidad
+                    cambio = round(cambio % valor, 2)
+
+                print("Desglose del cambio:")
+                for denominacion, cantidad in desglose.items():
+                    print(f" - {cantidad} {denominacion}")
+
+                break
+        except ValueError:
+            print("Por favor, ingrese un número válido.")
+
+def main():
+    load_dotenv()  # Cargar variables de entorno desde un archivo .env
+    config = load_config()
+
+    account_sid = config['TWILIO']['ACCOUNT_SID']
+    auth_token = config['TWILIO']['AUTH_TOKEN']
+    from_number = config['WHATSAPP']['FROM_NUMBER']
+    to_number = config['WHATSAPP']['TO_NUMBER']
+
+    while True:
+        opcion = menu_principal()
+
+        if opcion == '1':
+            while True:
+                nombre_cliente = input("Ingrese su nombre completo: ")
+                cedula_cliente = input("Ingrese el número de cédula del cliente (10 dígitos): ")
+                if len(cedula_cliente) == 10 and cedula_cliente.isdigit():
+                    if os.path.exists(os.path.join('Base_Usuarios', f'{cedula_cliente}.txt')):
+                        print("El número de cédula ya está registrado. Por favor, inicie sesión.")
+                        break
+                    break
+                else:
+                    print("Número de cédula inválido. Debe tener exactamente 10 dígitos.")
+
+            if os.path.exists(os.path.join('Base_Usuarios', f'{cedula_cliente}.txt')):
+                continue  # Regresar al menú principal para evitar duplicación de código
+
+            while True:
+                numero_placa = input("Ingrese el número de placa del vehículo: ")
+                placa_sin_espacio = numero_placa.replace(" ", "")
+                if len(placa_sin_espacio) == 6 and placa_sin_espacio.isalnum():
+                    print(f"Moto con placa {placa_sin_espacio} registrada correctamente.")
+                    break
+                elif len(placa_sin_espacio) == 7 and placa_sin_espacio.isalnum():
+                    print(f"Vehículo con placa {placa_sin_espacio} registrado correctamente.")
+                    break
+                else:
+                    print("Número de placa inválido. Debe tener exactamente 6 o 7 caracteres.")
+
+            guardar_datos_usuario(nombre_cliente, cedula_cliente, placa_sin_espacio)
+            mensaje_registro = f"Bienvenido {nombre_cliente}. Su {'moto' if len(placa_sin_espacio) == 6 else 'vehículo'} con placa {placa_sin_espacio} ha sido registrado correctamente."
+            response = send_whatsapp_message(from_number, to_number, mensaje_registro, account_sid, auth_token)
+
+            if response.status_code == 201:
+                print('Mensaje de confirmación de registro enviado correctamente.')
+            else:
+                print('Error al enviar el mensaje de confirmación de registro:')
+                print(response.text)
+
+            procesar_estacionamiento(nombre_cliente, placa_sin_espacio, from_number, to_number, account_sid, auth_token)
+
+        elif opcion == '2':
+            while True:
+                cedula_cliente = input("Ingrese su número de cédula (10 dígitos): ")
+                if len(cedula_cliente) == 10 and cedula_cliente.isdigit():
+                    break
+                else:
+                    print("Número de cédula inválido. Debe tener 10 dígitos.")
+
+            nombre_cliente, placa = cargar_datos_usuario(cedula_cliente)
+            if placa:
+                print("¿Desea cambiar la placa registrada? (s/n)")
+                cambiar_placa = input().lower()
+                if cambiar_placa == 's':
+                    while True:
+                        nueva_placa = input("Ingrese el nuevo número de placa del vehículo: ")
+                        nueva_placa_sin_espacio = nueva_placa.replace(" ", "")
+                        if len(nueva_placa_sin_espacio) == 6 and nueva_placa_sin_espacio.isalnum():
+                            print(f"Moto con nueva placa {nueva_placa_sin_espacio} registrada correctamente.")
+                            break
+                        elif len(nueva_placa_sin_espacio) == 7 and nueva_placa_sin_espacio.isalnum():
+                            print(f"Vehículo con nueva placa {nueva_placa_sin_espacio} registrada correctamente.")
+                            break
+                        else:
+                            print("Número de placa inválido. Debe tener exactamente 6 o 7 caracteres.")
+
+                    guardar_datos_usuario(nombre_cliente, cedula_cliente, nueva_placa_sin_espacio)
+                    mensaje_registro = f"Estimado {nombre_cliente}, la placa de su {'moto' if len(nueva_placa_sin_espacio) == 6 else 'vehículo'} ha sido actualizada a {nueva_placa_sin_espacio}."
+                    response = send_whatsapp_message(from_number, to_number, mensaje_registro, account_sid, auth_token)
+
+                    if response.status_code == 201:
+                        print('Mensaje de confirmación de registro enviado correctamente.')
+                    else:
+                        print('Error al enviar el mensaje de confirmación de registro:')
+                        print(response.text)
+
+                    placa = nueva_placa_sin_espacio
+
+                procesar_estacionamiento(nombre_cliente, placa, from_number, to_number, account_sid, auth_token)
+
+        elif opcion == '3':
+            while True:
+                cedula_cliente = input("Ingrese el número de cédula del cliente a eliminar: ")
+                if len(cedula_cliente) == 10 and cedula_cliente.isdigit():
+                    eliminar_usuario(cedula_cliente)
+                    break
+                else:
+                    print("Número de cédula inválido. Debe tener 10 dígitos.")
+
+        elif opcion == '4':
+            print("Saliendo del sistema. ¡Hasta luego!")
+            break
+
+if __name__ == '__main__':
+    main()
+
+
+
+
