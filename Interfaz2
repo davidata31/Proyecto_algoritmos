@@ -1,0 +1,303 @@
+import tkinter as tk
+from tkinter import simpledialog, messagebox
+import requests
+import json
+import base64
+import configparser
+import logging
+from datetime import datetime, timedelta
+import math
+import os
+from dotenv import load_dotenv
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def load_config(config_file='config.ini'):
+    config = configparser.ConfigParser()
+    config.read(config_file)
+    return config
+
+def get_twilio_headers(account_sid, auth_token):
+    auth_str = f'{account_sid}:{auth_token}'
+    auth_bytes = auth_str.encode('utf-8')
+    auth_base64 = base64.b64encode(auth_bytes).decode('utf-8')
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': f'Basic {auth_base64}'
+    }
+    return headers
+
+def send_whatsapp_message(from_number, to_number, message_body, account_sid, auth_token):
+    config = load_config()
+    url = f'{config["TWILIO"]["API_URL"]}/{account_sid}/Messages.json'
+    message_data = {
+        'From': from_number,
+        'To': to_number,
+        'Body': message_body
+    }
+    headers = get_twilio_headers(account_sid, auth_token)
+    response = requests.post(url, headers=headers, data=message_data)
+    return response
+
+def guardar_datos_usuario(nombre, cedula, placa):
+    if not os.path.exists('Base_Usuarios'):
+        os.makedirs('Base_Usuarios')
+
+    archivo_usuario = os.path.join('Base_Usuarios', f'{cedula}.txt')
+
+    with open(archivo_usuario, 'w') as archivo:
+        archivo.write(f'Nombre: {nombre}\n')
+        archivo.write(f'Cédula: {cedula}\n')
+        archivo.write(f'Placa: {placa}\n')
+
+    print(f'Datos del usuario {nombre} guardados en {archivo_usuario}')
+
+def cargar_datos_usuario(cedula):
+    archivo_usuario = os.path.join('Base_Usuarios', f'{cedula}.txt')
+    if os.path.exists(archivo_usuario):
+        with open(archivo_usuario, 'r') as archivo:
+            datos = archivo.readlines()
+            nombre = datos[0].split(": ")[1].strip()
+            placa = datos[2].split(": ")[1].strip()
+            print(f'Datos del usuario {cedula}:\nNombre: {nombre}\nPlaca: {placa}')
+            return nombre, placa
+    else:
+        print(f'Usuario con cédula {cedula} no encontrado.')
+        return None, None
+
+def eliminar_usuario(cedula):
+    archivo_usuario = os.path.join('Base_Usuarios', f'{cedula}.txt')
+    if os.path.exists(archivo_usuario):
+        os.remove(archivo_usuario)
+        print(f'Usuario con cédula {cedula} eliminado.')
+    else:
+        print(f'Usuario con cédula {cedula} no encontrado.')
+
+class ParkingApp:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Sistema de Gestión de Estacionamiento")
+        self.create_widgets()
+
+        load_dotenv()
+        config = load_config()
+
+        self.account_sid = config['TWILIO']['ACCOUNT_SID']
+        self.auth_token = config['TWILIO']['AUTH_TOKEN']
+        self.from_number = config['WHATSAPP']['FROM_NUMBER']
+        self.to_number = config['WHATSAPP']['TO_NUMBER']
+
+    def create_widgets(self):
+        self.main_frame = tk.Frame(self.master)
+        self.main_frame.pack(pady=20)
+
+        self.label = tk.Label(self.main_frame, text="Bienvenido/a al sistema de gestión de estacionamiento.")
+        self.label.pack()
+
+        self.btn_nuevo_usuario = tk.Button(self.main_frame, text="Crear nuevo usuario", command=self.crear_nuevo_usuario)
+        self.btn_nuevo_usuario.pack(pady=5)
+
+        self.btn_iniciar_sesion = tk.Button(self.main_frame, text="Iniciar sesión", command=self.iniciar_sesion)
+        self.btn_iniciar_sesion.pack(pady=5)
+
+        self.btn_eliminar_usuario = tk.Button(self.main_frame, text="Eliminar usuario", command=self.eliminar_usuario)
+        self.btn_eliminar_usuario.pack(pady=5)
+
+        self.btn_salir = tk.Button(self.main_frame, text="Salir", command=self.master.quit)
+        self.btn_salir.pack(pady=5)
+
+    def crear_nuevo_usuario(self):
+        nombre_cliente = simpledialog.askstring("Crear nuevo usuario", "Ingrese su nombre completo:")
+        while True:
+            cedula_cliente = simpledialog.askstring("Crear nuevo usuario", "Ingrese el número de cédula del cliente (10 dígitos):")
+            if len(cedula_cliente) == 10 and cedula_cliente.isdigit():
+                if os.path.exists(os.path.join('Base_Usuarios', f'{cedula_cliente}.txt')):
+                    messagebox.showerror("Error", "El número de cédula ya está registrado. Por favor, inicie sesión.")
+                    return
+                break
+            else:
+                messagebox.showerror("Error", "Número de cédula inválido. Debe tener exactamente 10 dígitos.")
+                
+        while True:
+            numero_placa = simpledialog.askstring("Crear nuevo usuario", "Ingrese el número de placa del vehículo:")
+            placa_sin_espacio = numero_placa.replace(" ", "")
+            if len(placa_sin_espacio) == 6 and placa_sin_espacio.isalnum():
+                messagebox.showinfo("Registro exitoso", f"Moto con placa {placa_sin_espacio} registrada correctamente.")
+                break
+            elif len(placa_sin_espacio) == 7 and placa_sin_espacio.isalnum():
+                messagebox.showinfo("Registro exitoso", f"Vehículo con placa {placa_sin_espacio} registrado correctamente.")
+                break
+            else:
+                messagebox.showerror("Error", "Número de placa inválido. Debe tener exactamente 6 o 7 caracteres.")
+
+        guardar_datos_usuario(nombre_cliente, cedula_cliente, placa_sin_espacio)
+        mensaje_registro = f"Bienvenido {nombre_cliente}. Su {'moto' if len(placa_sin_espacio) == 6 else 'vehículo'} con placa {placa_sin_espacio} ha sido registrado correctamente."
+        response = send_whatsapp_message(self.from_number, self.to_number, mensaje_registro, self.account_sid, self.auth_token)
+
+        if response.status_code == 201:
+            messagebox.showinfo("Mensaje enviado", 'Mensaje de confirmación de registro enviado correctamente.')
+        else:
+            messagebox.showerror("Error", 'Error al enviar el mensaje de confirmación de registro:')
+            print(response.text)
+
+        self.procesar_estacionamiento(nombre_cliente, placa_sin_espacio)
+
+    def iniciar_sesion(self):
+        while True:
+            cedula_cliente = simpledialog.askstring("Iniciar sesión", "Ingrese su número de cédula (10 dígitos):")
+            if len(cedula_cliente) == 10 and cedula_cliente.isdigit():
+                break
+            else:
+                messagebox.showerror("Error", "Número de cédula inválido. Debe tener 10 dígitos.")
+                
+        nombre_cliente, placa = cargar_datos_usuario(cedula_cliente)
+        if placa:
+            cambiar_placa = messagebox.askyesno("Cambio de placa", "¿Desea cambiar la placa registrada?")
+            if cambiar_placa:
+                while True:
+                    nueva_placa = simpledialog.askstring("Cambio de placa", "Ingrese el nuevo número de placa del vehículo:")
+                    nueva_placa_sin_espacio = nueva_placa.replace(" ", "")
+                    if len(nueva_placa_sin_espacio) == 6 and nueva_placa_sin_espacio.isalnum():
+                        messagebox.showinfo("Registro exitoso", f"Moto con nueva placa {nueva_placa_sin_espacio} registrada correctamente.")
+                        break
+                    elif len(nueva_placa_sin_espacio) == 7 and nueva_placa_sin_espacio.isalnum():
+                        messagebox.showinfo("Registro exitoso", f"Vehículo con nueva placa {nueva_placa_sin_espacio} registrada correctamente.")
+                        break
+                    else:
+                        messagebox.showerror("Error", "Número de placa inválido. Debe tener exactamente 6 o 7 caracteres.")
+                        
+                guardar_datos_usuario(nombre_cliente, cedula_cliente, nueva_placa_sin_espacio)
+                mensaje_registro = f"Estimado {nombre_cliente}, la placa de su {'moto' if len(nueva_placa_sin_espacio) == 6 else 'vehículo'} ha sido actualizada a {nueva_placa_sin_espacio}."
+                response = send_whatsapp_message(self.from_number, self.to_number, mensaje_registro, self.account_sid, self.auth_token)
+
+                if response.status_code == 201:
+                    messagebox.showinfo("Mensaje enviado", 'Mensaje de confirmación de registro enviado correctamente.')
+                else:
+                    messagebox.showerror("Error", 'Error al enviar el mensaje de confirmación de registro:')
+                    print(response.text)
+
+                placa = nueva_placa_sin_espacio
+
+            self.procesar_estacionamiento(nombre_cliente, placa)
+
+    def eliminar_usuario(self):
+        while True:
+            cedula_cliente = simpledialog.askstring("Eliminar usuario", "Ingrese el número de cédula del cliente a eliminar:")
+            if len(cedula_cliente) == 10 and cedula_cliente.isdigit():
+                eliminar_usuario(cedula_cliente)
+                break
+            else:
+                messagebox.showerror("Error", "Número de cédula inválido. Debe tener 10 dígitos.")
+
+    def procesar_estacionamiento(self, nombre, placa):
+        fecha_actual = datetime.now() - timedelta(hours=0)
+        
+        mensaje_inicial = f'''Bienvenido/a {nombre}. Se cobrará 25 centavos por cada 15 minutos de estacionamiento. Los primeros 10 minutos son gratuitos. Si se ha estacionado menos de 1 hora recuerde que por hora o fracción el parqueadero cuesta 1 dólar.'''
+        response = send_whatsapp_message(self.from_number, self.to_number, mensaje_inicial, self.account_sid, self.auth_token)
+
+        if response.status_code == 201:
+            messagebox.showinfo("Mensaje enviado", 'Mensaje inicial enviado correctamente.')
+        else:
+            messagebox.showerror("Error", 'Error al enviar el mensaje inicial:')
+            print(response.text)
+
+        while True:
+            hora_entrada_str = simpledialog.askstring("Estacionamiento", "Ingrese la hora de entrada del vehículo (HH:MM:SS):")
+            try:
+                hora_entrada = datetime.strptime(hora_entrada_str, '%H:%M:%S').time()
+                if hora_entrada < datetime.strptime('00:00:00', '%H:%M:%S').time() or hora_entrada > datetime.strptime('23:59:59', '%H:%M:%S').time():
+                    messagebox.showerror("Error", "La hora debe estar dentro del rango de 00:00:00 a 23:59:59.")
+                    continue
+                break
+            except ValueError:
+                messagebox.showerror("Error", "Formato de hora incorrecto. Use HH:MM:SS.")
+                continue
+
+        while True:
+            hora_salida_str = simpledialog.askstring("Estacionamiento", "Ingrese la hora de salida del vehículo (HH:MM:SS):")
+            try:
+                hora_salida = datetime.strptime(hora_salida_str, '%H:%M:%S').time()
+                if hora_salida < datetime.strptime('00:00:00', '%H:%M:%S').time() or hora_salida > datetime.strptime('23:59:59', '%H:%M:%S').time():
+                    messagebox.showerror("Error", "La hora debe estar dentro del rango de 00:00:00 a 23:59:59.")
+                    continue
+                break
+            except ValueError:
+                messagebox.showerror("Error", "Formato de hora incorrecto. Use HH:MM:SS.")
+                continue
+
+        hora_entrada_dt = datetime.combine(fecha_actual.date(), hora_entrada)
+        hora_salida_dt = datetime.combine(fecha_actual.date(), hora_salida)
+
+        if hora_salida_dt < hora_entrada_dt:
+            messagebox.showerror("Error", "La hora de salida no puede ser anterior a la hora de entrada.")
+            return
+
+        tiempo_estacionado = hora_salida_dt - hora_entrada_dt
+        tiempo_estacionado_minutos = tiempo_estacionado.total_seconds() / 60
+
+        if tiempo_estacionado_minutos <= 10:
+            costo_estacionamiento = 0
+        else:
+            tiempo_estacionado_minutos -= 10
+            costo_estacionamiento = math.ceil(tiempo_estacionado_minutos / 15) * 0.25
+
+        if tiempo_estacionado_minutos < 60:
+            costo_estacionamiento = min(costo_estacionamiento, 1.0)
+
+        messagebox.showinfo("Estacionamiento", f"Tiempo total de estacionamiento: {tiempo_estacionado}\nCosto total de estacionamiento: ${costo_estacionamiento:.2f}")
+
+        mensaje_cobro = f"{nombre}, su {'moto' if len(placa) == 6 else 'vehículo'} con placa {placa}: Tiempo de estacionamiento: {tiempo_estacionado}, Costo: ${costo_estacionamiento:.2f}"
+        response = send_whatsapp_message(self.from_number, self.to_number, mensaje_cobro, self.account_sid, self.auth_token)
+
+        if response.status_code == 201:
+            messagebox.showinfo("Mensaje enviado", 'Mensaje de cobro enviado correctamente.')
+        else:
+            messagebox.showerror("Error", 'Error al enviar el mensaje de cobro:')
+            print(response.text)
+
+        while True:
+            try:
+                monto_pagado = float(simpledialog.askstring("Estacionamiento", "Ingrese el monto que paga el cliente (máximo $20):"))
+                if monto_pagado > 20.0:
+                    messagebox.showerror("Error", "El monto pagado no puede ser mayor a 20 dólares.")
+                elif monto_pagado < costo_estacionamiento:
+                    messagebox.showerror("Error", "El monto pagado es insuficiente para cubrir el total a cobrar.")
+                else:
+                    cambio = round(monto_pagado - costo_estacionamiento, 2)
+                    messagebox.showinfo("Pago", f"El cliente ha pagado: ${monto_pagado:.2f}\nCambio a dar: ${cambio:.2f}")
+
+                    denominaciones = {
+                        20.0: "billetes de 20 dólares",
+                        10.0: "billetes de 10 dólares",
+                        5.0: "billetes de 5 dólares",
+                        1.0: "monedas de 1 dólar",
+                        0.5: "monedas de 50 centavos",
+                        0.25: "monedas de 25 centavos",
+                        0.05: "monedas de 5 centavos",
+                        0.01: "monedas de 1 centavo"
+                    }
+
+                    desglose = {}
+
+                    for valor, denominacion in denominaciones.items():
+                        cantidad = int(cambio // valor)
+                        if cantidad > 0:
+                            desglose[denominacion] = cantidad
+                        cambio = round(cambio % valor, 2)
+
+                    desglose_str = "Desglose del cambio:\n"
+                    for denominacion, cantidad in desglose.items():
+                        desglose_str += f" - {cantidad} {denominacion}\n"
+
+                    messagebox.showinfo("Cambio", desglose_str)
+                    break
+            except ValueError:
+                messagebox.showerror("Error", "Por favor, ingrese un número válido.")
+
+def main():
+    root = tk.Tk()
+    app = ParkingApp(root)
+    root.mainloop()
+
+if __name__ == '__main__':
+    main()
