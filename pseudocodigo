@@ -1,0 +1,94 @@
+Algoritmo CambioEstacionamiento
+
+    Definir totalCobrar, montoPagado, cambio Como Real
+    Definir billetes20, billetes10, billetes5, billetes1 Como Entero
+    Definir centavos25, centavos10, centavos5, centavos1 Como Entero
+    Definir totalBilletes, totalCentavos Como Entero
+
+    Repetir
+        Escribir "Ingrese el total a cobrar por el estacionamiento: "
+        Leer totalCobrar
+        Si (totalCobrar < 0) Entonces
+            Escribir "El total a cobrar no puede ser negativo."
+        FinSi
+    Hasta Que (totalCobrar >= 0)
+    
+    Repetir
+        Escribir "Ingrese el monto que paga el cliente: "
+        Leer montoPagado
+        Si (montoPagado < 0) Entonces
+            Escribir "El monto pagado no puede ser negativo."
+        FinSi
+        Si montoPagado < totalCobrar Entonces
+            Escribir "El monto pagado es insuficiente para cubrir el total a cobrar."
+        FinSi
+    Hasta Que (montoPagado >= totalCobrar)
+    
+    cambio = montoPagado - totalCobrar
+    
+    billetes20 = 0
+    billetes10 = 0
+    billetes5 = 0
+    billetes1 = 0
+    centavos25 = 0
+    centavos10 = 0
+    centavos5 = 0
+    centavos1 = 0
+    
+    Mientras (cambio >= 20) Hacer
+        billetes20 = billetes20 + 1
+        cambio = cambio - 20
+    FinMientras
+    
+    Mientras (cambio >= 10) Hacer
+        billetes10 = billetes10 + 1
+        cambio = cambio - 10
+    FinMientras
+    
+    Mientras (cambio >= 5) Hacer
+        billetes5 = billetes5 + 1
+        cambio = cambio - 5
+    FinMientras
+    
+    Mientras (cambio >= 1) Hacer
+        billetes1 = billetes1 + 1
+        cambio = cambio - 1
+    FinMientras
+
+    cambio = cambio * 100  // Convertir el cambio restante a centavos para facilitar el cálculo
+
+    Mientras (cambio >= 25) Hacer
+        centavos25 = centavos25 + 1
+        cambio = cambio - 25
+    FinMientras
+    
+    Mientras (cambio >= 10) Hacer
+        centavos10 = centavos10 + 1
+        cambio = cambio - 10
+    FinMientras
+    
+    Mientras (cambio >= 5) Hacer
+        centavos5 = centavos5 + 1
+        cambio = cambio - 5
+    FinMientras
+    
+    Mientras (cambio >= 1) Hacer
+        centavos1 = centavos1 + 1
+        cambio = cambio - 1
+    FinMientras
+    
+    totalBilletes = billetes20 + billetes10 + billetes5 + billetes1
+    totalCentavos = centavos25 + centavos10 + centavos5 + centavos1
+    
+    Escribir "Cambio a dar: "
+    Escribir "Billetes de 20 dólares: ", billetes20
+    Escribir "Billetes de 10 dólares: ", billetes10
+    Escribir "Billetes de 5 dólares: ", billetes5
+    Escribir "Billetes de 1 dólar: ", billetes1
+    Escribir "Monedas de 25 centavos: ", centavos25
+    Escribir "Monedas de 10 centavos: ", centavos10
+    Escribir "Monedas de 5 centavos: ", centavos5
+    Escribir "Monedas de 1 centavo: ", centavos1
+    Escribir "Total de billetes a entregar: ", totalBilletes
+    Escribir "Total de centavos a entregar: ", totalCentavos
+FinAlgoritmo
